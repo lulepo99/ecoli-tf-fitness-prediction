@@ -36,5 +36,7 @@ This repository includes two R Markdown files that document the full analysis:
 - `preprocessing.Rmd`: contains the data loading and preprocessing steps, including the filtering and cleaning of the data, the computation of all five aggregation functions and MSE for each transcription factor across experimental conditions.
 - `analysis.Rmd`: includes all downstream analyses, such as exploratory plots, correlation tests, assignment of the best function per TF, PCA and three-dimensional plots, focus on the role of the number of targets and operons, and interpretation of the results.
 
+Both files are annotated with code comments and explanatory text, and they contain all reasoning and methodological details that support the results summarized in this README.
+
 ## Contact
 For any additional questions or feedback, please contact [Luca Lepore](mailto:luca.lepore99@outlook.com)
