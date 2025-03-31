@@ -33,8 +33,8 @@ Interestingly, no single function emerged as universally superior. PCA revealed 
 ## Repository Contents
 
 This repository includes two R Markdown files that document the full analysis:
-- preprocessing.Rmd: contains the data loading and preprocessing steps, including the filtering and cleaning of the data, the computation of all five aggregation functions and MSE for each transcription factor across experimental conditions.
-- analysis.Rmd: includes all downstream analyses, such as exploratory plots, correlation tests, assignment of the best function per TF, PCA and three-dimensional plots, focus on the role of the number of targets and operons, and interpretation of the results.
+- 'preprocessing.Rmd': contains the data loading and preprocessing steps, including the filtering and cleaning of the data, the computation of all five aggregation functions and MSE for each transcription factor across experimental conditions.
+- 'analysis.Rmd': includes all downstream analyses, such as exploratory plots, correlation tests, assignment of the best function per TF, PCA and three-dimensional plots, focus on the role of the number of targets and operons, and interpretation of the results.
 
 ## Contact
 For any additional questions or feedback, please contact [Luca Lepore](mailto:luca.lepore99@outlook.com)
