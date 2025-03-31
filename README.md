@@ -1,4 +1,4 @@
-# Project 1 - Fitness Prediction in the Escherichia coli Gene Regulatory Network
+# Project 1 - Fitness Prediction in Escherichia coli Gene Regulatory Network
 
 ## Overview
 
