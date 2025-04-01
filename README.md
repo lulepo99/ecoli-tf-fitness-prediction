@@ -13,18 +13,18 @@ However, the exact form of this function f is unknown. Several biologically moti
 - The **product** models strong epistasis but overestimates effects when many targets are unrelated.
 - The **geometric mean** corrects the product's problem but does not capture the number of interactions.
 
-For each TF-condition pair, these five functions were computed using the fitness values of the TF's targets. The result was compared to the actual TF fitness by computing the log2 ratio of observed vs. predicted fitness. This log2 transformation allows for symmetric interpretation: a ratio near zero indicates a good match between the predicted and observed value.
+For each TF-condition pair, these five functions were computed using the fitness values of the TF's targets. The result was compared to the actual TF fitness by computing the log2 ratio of observed versus predicted fitness. This log2 transformation allows for symmetric interpretation: a ratio near zero indicates a good match between the predicted and observed value.
 
 To assess how well each function captures TF behavior across conditions, squared errors were computed and summarized with mean squared error (MSE). The "best function" was then assigned to each TF in two ways:
 - **dominantFunc:** the most frequently best function across conditions,
 - **bestGuessMSE:** the function with the lowest MSE across all conditions.
 
 Exploratory analyses were conducted on the resulting dataset, including:
-- Scatterplots and boxplots to visualize how each function performs in terms of mean error and variability,
-- Correlation tests to assess whether function performance depends on the number of targets,
-- Comparison of the two classification criteria (dominantFunc and bestGuessMSE)
-- Principal Component Analysis (PCA) to visualize whether TFs tend to cluster by function in a reduced space,
-- Relationship between the transcription factors connectivity and the function assigned.
+- scatterplots and boxplots to visualize how each function performs in terms of mean error and variability,
+- correlation tests to assess whether function performance depends on the number of targets,
+- comparison of the two classification criteria (dominantFunc and bestGuessMSE)
+- principal Component Analysis (PCA) to visualize whether TFs tend to cluster by function in a reduced space,
+- relationship between the transcription factors connectivity and the function assigned.
 
 ## Results
 
