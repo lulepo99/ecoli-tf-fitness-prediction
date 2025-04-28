@@ -1,0 +1,420 @@
+---
+title: "Project 1 - Fitness Prediction in Escherichia coli Gene Regulatory Network"
+author: "Luca Lepore - 30617A"
+subtitle: "Preprocessing"
+output: html_document
+date: "2025-03-16"
+---
+
+**Note:** A summary of the project and objectives is available in the accompanying `README.md` file.
+
+Import libraries
+
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+
+Load the fitness, network gene, and network operon data.
+
+```{r}
+fitness <- read.delim("E_coli_data/fitness_Ecoli.tsv", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+
+network_gene <- read.delim("E_coli_data/network_tf_gene_Ecoli_GRN.txt",
+                      header = FALSE,
+                      sep = "\t",
+                      comment.char = "#",
+                      stringsAsFactors = FALSE)
+
+network_operon <- read.delim("E_coli_data/network_tf_operon_Ecoli_GRN.txt",
+                      header = FALSE,
+                      sep = "\t",
+                      comment.char = "#",
+                      stringsAsFactors = FALSE)
+```
+
+
+# Data Filtering, Cleaning, and Preprocessing
+
+Remove the column 8 from the network_gene dataset, and column 6 from the network_operon dataset. Rename the other columns based on the metadata of the network_tf_gene_Ecoli_GRN.txt and network_tf_operon_Ecoli_GRN.txt files.
+
+```{r}
+network_gene <- network_gene[, 1:7]
+
+colnames(network_gene) <- c("tfId", "tfName", "geneId", "geneName", "regEffect", "evidence", "evidenceType")
+
+network_operon <- network_operon[, 1:5]
+
+colnames(network_operon) <- c("tfName", "operonName", "regEffect", "evidence", "evidenceType")
+```
+
+
+Create the tf_targets dataset with the transcription factors present in the network_gene dataset along with the genes they regulate. By convention, Escherichia coli gene names are written with a lowercase first letter. Therefore, we can convert the first letter of each TF name to lowercase to match the format used in the fitness dataset. To ensure consistency in the targets list for each TF, potential whitespace are trimmed from gene names and duplicates are removed.
+
+```{r}
+tf_targets <- network_gene %>%
+  mutate(tfGeneName = paste0(
+    tolower(substr(tfName, 1, 1)),
+    substr(tfName, 2, nchar(tfName))
+  )) %>%
+  select(tfName, tfGeneName, geneName) %>%
+  group_by(tfName, tfGeneName) %>%
+  summarise(targets = list(unique(trimws(geneName))), .groups = "drop")
+```
+
+
+Check if all the transcription factors in the regulatory network have a corresponding fitness value in the fitness dataset.
+
+```{r}
+# Extract all the TFs gene names from
+tf_names <- tf_targets$tfGeneName
+
+# Check if there are TF genes not found in the fitness dataset
+missing_tf <- tf_names[!(tf_names %in% fitness$geneName)]
+
+length(missing_tf)
+print(missing_tf)
+```
+
+Remove from the tf_targets dataset all the transcription factors without a corresponding fitness value.
+
+```{r}
+tf_targets <- tf_targets[tf_targets$tfGeneName %in% fitness$geneName, ]
+```
+
+
+Identify transcription factors whose target genes are not all present in the fitness dataset.
+
+```{r}
+tf_removed <- tf_targets %>%
+  rowwise() %>%
+  filter(any(!(targets %in% fitness$geneName))) %>%
+  pull(tfName)
+
+length(tf_removed)
+print(tf_removed)
+```
+
+
+Exclude the transcription factors just found from the tf_targets dataset. This step is crucial because we compute the expected fitness of each transcription factor based on the fitness values of its regulated genes. Otherwise, missing values could introduce bias and make the comparison with the transcription factors' own fitness value unreliable.
+
+```{r}
+tf_targets <- tf_targets %>%
+  rowwise() %>%
+  filter(all(targets %in% fitness$geneName)) %>%
+  ungroup()
+```
+
+
+Check if there are transcription factors that regulate just one gene.
+
+```{r}
+tf_one_target <- tf_targets %>%
+  rowwise() %>%
+  filter(length(targets) == 1) %>%
+  ungroup() %>%
+  pull(tfName)
+
+length(tf_one_target)
+print(tf_one_target)
+```
+
+
+Exclude the transcription factors just found from the tf_targets dataset. This step is necessary to avoid bias when computing the functional metrics as transcription factors that regulate only one gene would produce identical values, making the comparison trivial and uninformative.
+
+```{r}
+tf_targets <- tf_targets %>%
+  filter(!(tfName %in% tf_one_target))
+```
+
+
+Create a usable version of the fitness and network_gene datasets by excluding all the genes that cannot be analysed following the previous steps.
+
+```{r}
+genes <- unique(c(tf_targets$tfGeneName, unlist(tf_targets$targets)))
+
+fitness_usable <- fitness %>% filter(geneName %in% genes)
+network_gene_usable <- network_gene %>%
+  filter(tfName %in% tf_targets$tfName & geneName %in% genes)
+```
+
+
+Create a usable version of the network_operon dataset by excluding all the transcription factors not present in tf_targets
+
+```{r}
+network_operon_usable <- network_operon %>%
+  filter(tfName %in% tf_targets$tfName)
+```
+
+
+Check if there are NA or zero values for the fitness in the conditions column
+
+```{r}
+any(is.na(fitness_usable))                  
+any(fitness_usable[, 6:ncol(fitness_usable)] == 0)
+```
+
+
+Inspecting `regEffect` and `evidenceType` columns to assess if ulterior filtering is needed before analysis. The summary confirms that all the entries are reliable (no ambiguous values), therefore no additional filtering is required.
+
+```{r}
+table(network_gene_usable$regEffect)
+table(network_gene_usable$evidenceType)
+```
+
+
+Check how many transcription factors survived the filtering. Originally, the tf_targets dataset contained 216 TFs. After filtering, 60 TFs were retained for downstream analyses.
+
+```{r}
+nrow(tf_targets)
+```
+
+
+Examine the global distribution of the fitness values across all experimental conditions. According to the documentation of the Fitness Browser, the fitness values provided in the dataset are already log2-transformed. Specifically, fitness is defined as the log2 ratio between the final and initial abundance of each mutant strain: fitness = log2(final abundance / initial abundance). From the results, the distribution of the fitness values is centered around 0. Biologically, a normalized fitness value of 0 indicates that the mutation has no effect on growth (the mutants probably grow as well as wild type strains), negative values indicate reduced growth (growth disadvantage), and positive values suggest that knocking out the gene may actually enhance the growth (growth advantage).
+
+```{r}
+fitness_values <- unlist(fitness_usable[, 6:ncol(fitness_usable)])
+summary(fitness_values)
+```
+
+
+Since the fitness values provided are already log2-transformed, the log2 ratio between a predicted and an observed value could in principle be computed as a simple difference: 
+log2(pred / obs) = log2(pred) - log2(obs). This would allow us to directly calculate metrics in log scale. However, certain functions, such as the geometric mean, are not defined for negative values. Besides, the computation of the Mean Squared Error is carried out later. For these reasons, linearization of the data  was performed by applying 2^x to all fitness values before computing the target functions. In this way, the MSE, the geometric mean and any other function that assumes positive input values can be computed. Once the the functions are computed, the log2 ratio between the predicted and the observed fitness can be calculated for downstream analysis.
+
+
+```{r}
+fitness_lin <- fitness_usable
+fitness_lin[, 6:ncol(fitness_lin)] <- 2 ^ fitness_lin[, 6:ncol(fitness_lin)]
+```
+
+
+Examine the global distribution of the linearized fitness values across all experimental conditions. After linearization, values are centered around 1, as expected. In this context, a linearized fitness value of 1 corresponds to a wild type growth rate, values < 1 indicate reduced growth (growth disadvantage), and values > 1 suggest that knocking out the gene may actually enhance the growth (growth advantage).
+
+```{r}
+fitness_values_lin <- unlist(fitness_lin[, 6:ncol(fitness_lin)])
+summary(fitness_values_lin)
+```
+
+
+Create the processed_data dataset by computing values for each transcription factor and each experimental condition. For each TF-condition pair:
+
+- compute five aggregation functions (mean, max, sum, product, geometric mean) over the fitness of the TF’s target genes,
+- calculate the log2 ratio between each aggregated value and the TF’s own measured fitness,
+to assess how well each function explains the TF's behavior under different functional assumptions,
+- compute the squared error ([Ypred - Yobserved]^2) for each function, comparing the aggregated target fitness (Ypred) with the TF's actual fitness (Yobserved), to compute later the mean squared error (MSE). The MSE represents the average squared difference between predicted and observed values, providing a global measure of how well each function approximates the TF’s behavior across all conditions.
+  
+```{r}
+conditions<- colnames(fitness)[6:ncol(fitness)]
+
+processed_data <- data.frame()
+
+# Loop through each transcription factor of the tf_targets dataframe
+for (i in seq_len(nrow(tf_targets))) {
+  
+  tf <- tf_targets$tfName[i]
+  tf_gene <- tf_targets$tfGeneName[i]
+  targets <- tf_targets$targets[[i]]
+  
+  for (cond in conditions) {
+    
+    # Measured fitness of the transcription factor
+    fitness_tf <- fitness_lin[fitness_lin$geneName == tf_gene, cond]
+    
+    # Measured fitness of the targets
+    target_fitness <- fitness_lin %>%
+      filter(geneName %in% targets) %>%
+      pull(cond)
+
+    # Functions
+    mean_val <- mean(target_fitness)
+    max_val  <- max(target_fitness)
+    sum_val  <- sum(target_fitness)
+    prod_val <- prod(target_fitness)
+    geom_val <- prod_val^(1 / length(target_fitness)) 
+
+    # Compile the processed_data dataframe
+    processed_data <- rbind(processed_data, data.frame(
+      tfName = tf,
+      nTargets = length(targets),
+      condition = cond,
+      fitness_tf = fitness_tf,
+      mean_targets = mean_val,
+      max_targets = max_val,
+      sum_targets = sum_val,
+      prod_targets = prod_val,
+      geom_targets = geom_val,
+      
+      log2_ratio_mean = log2(mean_val / fitness_tf),
+      log2_ratio_max  = log2(max_val  / fitness_tf),
+      log2_ratio_sum  = log2(sum_val  / fitness_tf),
+      log2_ratio_prod = log2(prod_val / fitness_tf),
+      log2_ratio_geom = log2(geom_val / fitness_tf),
+      
+      sqerr_mean = (fitness_tf - mean_val)^2,
+      sqerr_max  = (fitness_tf - max_val)^2,
+      sqerr_sum  = (fitness_tf - sum_val)^2,
+      sqerr_prod = (fitness_tf - prod_val)^2,
+      sqerr_geom = (fitness_tf - geom_val)^2
+))
+  }
+}
+```
+
+
+Assign the best function for each condition based on the log2 ratio value closest to zero. This creates a new column (bestGuessCondition) indicating which function (mean, max, sum, prod, geom) is best per condition.
+
+```{r}
+log2_cols <- c("log2_ratio_mean", "log2_ratio_max", "log2_ratio_sum", "log2_ratio_prod", "log2_ratio_geom")
+func_names <- c("mean", "max", "sum", "prod", "geom")
+
+processed_data$bestGuessCondition <- apply(processed_data[, log2_cols], 1, function(row) {
+  func_names[which.min(abs(row))]
+})
+```
+
+
+Clean the global environment.
+
+```{r}
+rm(cond, conditions, fitness_tf, fitness_values, fitness_values_lin, genes, geom_val, i, max_val, mean_val, missing_tf, prod_val, sum_val, target_fitness, targets, tf, tf_gene, tf_names, tf_one_target, tf_removed, log2_cols, func_names)
+```
+
+
+Save the processed_data dataset.
+
+```{r}
+write.csv(processed_data, "E_coli_data/tf_processed_data.tsv", row.names = FALSE)
+```
+
+
+Create a summary dataset with one row per transcription factor. For each TF:
+
+- include the number of regulated genes (nTargets),
+- compute the average log2 ratio across all experimental conditions for the five different aggregation functions (mean, sum, max, product, geometric mean) along with their standard deviation,
+- compute the mean squared error (MSE) between each function's aggregated fitness and the TF's measured fitness,
+
+```{r}
+tf_summary <- processed_data %>%
+  group_by(tfName) %>%
+  summarise(
+    nTargets = first(nTargets),
+    
+    # mean and standard deviation
+    l2rm_mean = mean(log2_ratio_mean),
+    sd_l2r_mean = sd(log2_ratio_mean),
+    l2rm_max = mean(log2_ratio_max),
+    sd_l2r_max = sd(log2_ratio_max),
+    l2rm_sum = mean(log2_ratio_sum),
+    sd_l2r_sum = sd(log2_ratio_sum),
+    l2rm_prod = mean(log2_ratio_prod),
+    sd_l2r_prod = sd(log2_ratio_prod),
+    l2rm_geom = mean(log2_ratio_geom),
+    sd_l2r_geom = sd(log2_ratio_geom),
+    
+    # mse
+    mse_mean = mean(sqerr_mean),
+    mse_max = mean(sqerr_max),
+    mse_sum = mean(sqerr_sum),
+    mse_prod = mean(sqerr_prod),
+    mse_geom = mean(sqerr_geom),
+    .groups = "drop"
+  )
+```
+
+
+Compute the number of operons regulated by each TF and add it to tf_summary. Group network_operon_usable by tfName and count distinct operons (nOperons). Merge this information into tf_summary using a left join on tfName and relocate the nOperons column right after tfName. 
+
+```{r}
+operon_counts <- network_operon_usable %>%
+  group_by(tfName) %>%
+  summarise(nOperons = n_distinct(operonName), .groups = "drop")
+
+tf_summary <- tf_summary %>%
+  left_join(operon_counts, by = "tfName")
+
+tf_summary <- tf_summary %>%
+  relocate(nOperons, .after = tfName)
+```
+
+
+Create the freq_table by computing for each transcription factor the frequency with which each function (mean, max, sum, prod, geom) was the best-performing function across the 168 experimental conditions. For each TF:
+
+- one column per function showing the corresponding frequency
+- determine the most frequently selected best function across conditions (dominantFunc),
+- show the associated frequency (dominantFreq),
+- add a logical column (dominantTie) indicating whether there was a tie for the most frequent function.
+
+```{r}
+# Compute the frequencies
+freq_table <- processed_data %>%
+  group_by(tfName, bestGuessCondition) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(tfName) %>%
+  mutate(freq = count / sum(count)) %>%
+  ungroup() %>%
+  select(-count)
+
+# Determine the dominant function
+dominant_info <- freq_table %>%
+  group_by(tfName) %>%
+  filter(freq == max(freq)) %>%
+  mutate(dominantTie = n() > 1) %>%
+  slice(1) %>%
+  rename(dominantFunc = bestGuessCondition, dominantFreq = freq) %>%
+  select(tfName, dominantFunc, dominantFreq, dominantTie)
+
+# Merge the information
+freq_table <- freq_table %>%
+  pivot_wider(names_from = bestGuessCondition, values_from = freq, values_fill = 0) %>%
+  left_join(dominant_info, by = "tfName")
+```
+
+
+Add the dominantFunc, dominantFreq, dominantTie columns to the tf_summary right after mse_geom.
+
+```{r}
+tf_summary <- tf_summary %>%
+  left_join(freq_table %>% select(tfName, dominantFunc, dominantFreq, dominantTie), by = "tfName") %>%
+  relocate(dominantFunc, dominantFreq, dominantTie, .after = mse_geom)
+```
+
+
+For each transcription factor, identify the best guess by comparing the mean squared error of the five metrics (mean, sum, max, product, geometric mean) and selecting the lowest one. Add the column bestGuessMSE to the tf_summary dataset.
+
+```{r}
+mse_cols <- c("mse_mean", "mse_max", "mse_sum", "mse_prod", "mse_geom")
+func_names <- c("mean", "max", "sum", "prod", "geom")
+
+# Create the bestGuessMSE column by selecting the function with the lowest MSE
+tf_summary$bestGuessMSE <- apply(tf_summary[, mse_cols], 1, function(row) {
+  func_names[which.min(row)]
+})
+
+# Create the frequencyBestGuessMSE column by extracting the corresponding value from freq_table
+tf_summary$frequencyBestGuessMSE <- mapply(function(tf, func) {
+  freq_table[freq_table$tfName == tf, ][[func]]
+}, tf = tf_summary$tfName, func = tf_summary$bestGuessMSE)
+```
+
+
+To understand the structure of the tf_summary dataset.
+
+```{r}
+head(tf_summary)
+```
+
+
+Save the tf_summary dataset.
+
+```{r}
+write.csv(tf_summary, "E_coli_data/tf_summary.tsv", row.names = FALSE)
+```
+
+
+Clean the global environment.
+
+```{r}
+rm(fitness, fitness_usable, fitness_lin, network_gene, network_operon, operon_counts, network_gene_usable, network_operon_usable, mse_cols, func_names, freq_table, dominant_info, processed_data, tf_targets)
+```
+

@@ -1,0 +1,450 @@
+---
+title: "Project 1 - Fitness Prediction in Escherichia coli Gene Regulatory Network"
+author: "Luca Lepore - 30617A"
+subtitle: "Analysis"
+output: html_document
+date: "2025-03-27"
+---
+
+**Note:** A summary of the project and objectives is available in the accompanying `README.md` file.
+
+Import libraries
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+library(plotly)
+```
+
+
+Load the tf_summary dataset produced thanks to the preprocessing.
+
+```{r}
+tf_summary <- read.delim("E_coli_data/tf_summary.tsv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+```
+
+
+# Exploratory Analysis of the five predictive Functions chosen
+
+For each aggregation function (mean, max, sum, product, geometric mean), plot a scatterplot showing the average log2 ratio (x-axis) versus its standard deviation across the 168 experimental conditions (y-axis). Each point represents a transcription factor. These plots help visualize both the effect size (closeness of the mean log2 ratio to 0) and the variability of each function's performance per TF. A vertical dashed line at x = 0 indicates the ideal agreement between the TF’s fitness and the aggregate fitness of its targets. From a first view to the plots, we can get:
+
+- **Mean:** most TFs cluster around a log2 ratio close to 0 with low variability, suggesting that the mean function provides a good overall approximation of the TF’s fitness based on its targets. A few outliers show moderate deviations from zero;
+- **Max:** the distribution is skewed to positive values, indicating that taking the maximum tends to overestimate the TF’s fitness (as expected). Still, the variability remains relatively low for most TFs;
+- **Sum:** shows a clear shift toward higher log₂ ratios. This means that the sum of target fitness values tends to strongly overestimate the TF’s own fitness. There's also increased variability compared to the mean and max functions;
+- **Product:** displays the widest spread in both log₂ ratio and standard deviation. The values range from strongly negative to strongly positive, indicating high instability and poor agreement with the TF’s measured fitness. This function appears unreliable in this context;
+- **Geometric mean:** similar in shape to the mean function, with values mostly clustered around zero and moderate variability. It might offer a slightly more robust way to capture the overall behavior of the target genes compared to the arithmetic mean.
+
+```{r}
+(
+  ( 
+    ggplot(tf_summary, aes(x = l2rm_mean, y = sd_l2r_mean)) +
+      geom_point(color = "#1f77b4") +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "gray") + xlim(-6, 6) +
+      ylim(0, 5) + labs(title = "Mean Function:\n Effect Size vs Variability", 
+                        x = "log2 ratio (mean)", y = "SD of log2 ratio") +
+      theme_minimal() + theme(plot.title = element_text(hjust = 0.5))
+  ) +
+  (
+    ggplot(tf_summary, aes(x = l2rm_max, y = sd_l2r_max)) +
+      geom_point(color = "#2ca02c") +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "gray") + xlim(-6, 6) +
+      ylim(0, 5) + labs(title = "Max Function:\n Effect Size vs Variability", 
+                        x = "log2 ratio (mean)", y = "SD of log2 ratio") +
+      theme_minimal() + theme(plot.title = element_text(hjust = 0.5))
+  ) +
+  (
+    ggplot(tf_summary, aes(x = l2rm_sum, y = sd_l2r_sum)) +
+      geom_point(color = "#e377c2") +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "gray") + xlim(-6, 6) +
+      ylim(0, 5) + labs(title = "Sum Function:\n Effect Size vs Variability", 
+                        x = "log2 ratio (mean)", y = "SD of log2 ratio") +
+      theme_minimal() + theme(plot.title = element_text(hjust = 0.5))
+  )
+) /
+(
+  ( ggplot(tf_summary, aes(x = l2rm_prod, y = sd_l2r_prod)) + 
+      geom_point(color = "#9467bd") +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "gray") + xlim(-6, 6) +
+      ylim(0, 5) + labs(title = "Product Function:\n Effect Size vs Variability", 
+                        x = "log2 ratio (mean)", y = "SD of log2 ratio") +
+      theme_minimal() + theme(plot.title = element_text(hjust = 0.5))
+  ) +
+  ( 
+    ggplot(tf_summary, aes(x = l2rm_geom, y = sd_l2r_geom)) +
+      geom_point(color = "#FA8072") +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "gray") + xlim(-6, 6) +
+      ylim(0, 5) + labs(title = "Geometric Mean Function:\n Effect Size vs Variability", 
+                        x = "log2 ratio (mean)", y = "SD of log2 ratio") +
+      theme_minimal() + theme(plot.title = element_text(hjust = 0.5))
+  ) +
+  plot_spacer() 
+)
+```
+
+
+The two boxplots provide a complementary summary to the scatterplots shown previously, offering a concise comparison across all five functions. The first plot shows the distribution of the average log2 ratio per function. Mean, max, and geometric mean functions cluster around zero, whereas sum and product exhibit stronger deviations, especially sum, which tends to overestimate TF fitness. The second plot focuses on the variability of each function across experimental conditions. Here, product clearly shows the widest spread and highest variability among the functions. Since both accuracy across functions and stability across conditions vary, they should be jointly considered when interpreting the best-fitting function for a transcription factor.
+
+```{r}
+(
+  ggplot() +
+    geom_boxplot(aes(x = "mean", y = tf_summary$l2rm_mean), fill = "#1f77b4") +
+    geom_boxplot(aes(x = "max",  y = tf_summary$l2rm_max),  fill = "#2ca02c") +
+    geom_boxplot(aes(x = "sum",  y = tf_summary$l2rm_sum),  fill = "#e377c2") +
+    geom_boxplot(aes(x = "prod", y = tf_summary$l2rm_prod), fill = "#9467bd") +
+    geom_boxplot(aes(x = "geom", y = tf_summary$l2rm_geom), fill = "#FA8072") +
+    labs(x = "Function", y = "log2 ratio (mean)", 
+         title = "Distribution of log2 Ratio (Mean)\n per Function") +
+    scale_x_discrete(drop = FALSE, limits = c("mean", "max", "sum", "prod", "geom")) +
+    theme_minimal() + 
+    theme(plot.title = element_text(hjust = 0.5, size = 17),       
+    axis.title.x = element_text(size = 14),                  
+    axis.title.y = element_text(size = 14),                  
+    axis.text.x = element_text(size = 12),                   
+    axis.text.y = element_text(size = 12))
+) +
+(
+  ggplot() +
+    geom_boxplot(aes(x = "mean", y = tf_summary$sd_l2r_mean), fill = "#1f77b4") +
+    geom_boxplot(aes(x = "max",  y = tf_summary$sd_l2r_max),  fill = "#2ca02c") +
+    geom_boxplot(aes(x = "sum",  y = tf_summary$sd_l2r_sum),  fill = "#e377c2") +
+    geom_boxplot(aes(x = "prod", y = tf_summary$sd_l2r_prod), fill = "#9467bd") +
+    geom_boxplot(aes(x = "geom", y = tf_summary$sd_l2r_geom), fill = "#FA8072") +
+    labs(x = "Function", y = "SD of log2 ratio", 
+         title = "Distribution of log2 Ratio (SD)\n per Function") +
+    scale_x_discrete(drop = FALSE, limits = c("mean", "max", "sum", "prod", "geom")) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5, size = 17),       
+    axis.title.x = element_text(size = 14),                  
+    axis.title.y = element_text(size = 14),                  
+    axis.text.x = element_text(size = 12),                   
+    axis.text.y = element_text(size = 12))
+)
+```
+
+
+**Kendall's correlation tests** are performed to assess general monotonic trends between the number of target genes and the performance of the functions across transcription factors. These tests help evaluate whether TFs with more targets tend to show higher error or variability when a specific functional model is used to estimate their fitness.
+
+Using the **mean** function, the number of targets shows no significant correlation with either the average error or its variability (p = 0.79 and p = 0.74, respectively). This suggests that the performance of the mean remains stable across transcription factors with different target counts, supporting its robustness. 
+
+```{r}
+cor.test(tf_summary$nTargets, abs(tf_summary$l2rm_mean), method = "kendall")
+cor.test(tf_summary$nTargets, tf_summary$sd_l2r_mean, method = "kendall")
+```
+
+
+A significant positive correlation is observed between the number of target genes and the average error when using the **max** function (p < 0.001), while no association is found with the error variability across conditions (p = 0.114). This indicates that as the number of targets increases, the estimated fitness systematically deviates farther from the real value, but does not become more unstable across conditions. This makes sense given how the max function works. If even one target has a high fitness value, it will dominate the result. So when a TF regulates many targets, there's a higher chance that one of them skews the prediction. This explains why max tends to perform poorly with more complex TFs.
+
+```{r}
+cor.test(tf_summary$nTargets, abs(tf_summary$l2rm_max), method = "kendall")
+cor.test(tf_summary$nTargets, tf_summary$sd_l2r_max, method = "kendall")
+```
+
+
+For the **sum** function, the correlation between the number of targets and the average error is strong and highly significant (p < 2.2e-16), whereas the variability across conditions shows no association (p = 0.742). As for the max function, this means that as the number of regulated genes increases, the sum function produces systematically worse estimates, but not more inconsistent ones. This behavior is expected: the more targets a TF has, the higher the summed fitness tends to be, leading to consistent overestimation. Compared to max, this issue is even more pronounced, since sum accumulates the fitness values, making it particularly sensitive to the number of targets.
+
+```{r}
+cor.test(tf_summary$nTargets, abs(tf_summary$l2rm_sum), method = "kendall")
+cor.test(tf_summary$nTargets, tf_summary$sd_l2r_sum, method = "kendall")
+```
+
+
+For the **product** function, there’s no strong correlation between the number of targets and the average error, though the p-value is close to the threshold (p = 0.068). This suggests a potential trend where error may increase with targets count, but the effect is not conclusive in this dataset. In contrast, there’s a clear and significant correlation with the error variability: TFs regulating more targets tend to show more fluctuations across conditions (p < 0.001). Thus, the product function does not necessarily become worse on average with increasing targets count, but its performance becomes more unstable. The initial expectation was that TFs regulating many targets would show worse performance with the product function, including a higher average error. This is also in line with the observation that the product function was selected only once as the best option using the MSE-based method, and four times using the dominant function approach. Since over half of the TFs in this dataset regulate four or fewer genes, the limited range might explain the lack of significance in the average error. With more data, the trend could become clearer.
+
+```{r}
+cor.test(tf_summary$nTargets, abs(tf_summary$l2rm_prod), method = "kendall")
+cor.test(tf_summary$nTargets, tf_summary$sd_l2r_prod, method = "kendall")
+```
+
+
+No significant correlation is observed between the number of targets and either the average or variability of the error when using the **geometric mean** function (p = 0.913 and p = 0.628, respectively). This suggests that the geometric aggregation behaves consistently across TFs with different numbers of targets. Despite being based on the product, the geometric mean mitigates its instability by normalizing it through the number of target genes. This scaling likely reduces the compounding effect of small values in the multiplication, making the output more stable and less sensitive to the number of regulated genes.
+
+```{r}
+cor.test(tf_summary$nTargets, abs(tf_summary$l2rm_geom), method = "kendall")
+cor.test(tf_summary$nTargets, tf_summary$sd_l2r_geom, method = "kendall")
+```
+
+
+# Comparison of Transcription Factors Classification Criteria
+
+Count how many transcription factors are best explained by each function according to the MSE-based criterion (**bestGuessMSE**).
+
+```{r}
+table(tf_summary$bestGuessMSE)
+```
+
+
+Count how many transcription factors have each function as the most frequent best guess across all conditions (**dominantFunc**)
+
+```{r}
+table(tf_summary$dominantFunc)
+```
+
+
+Visualize the number of transcription factors best explained by each function according to the two previous criteria.
+
+```{r}
+(
+  ggplot(tf_summary %>% count(bestGuessMSE), aes(x = bestGuessMSE, y = n, 
+                                               fill = bestGuessMSE)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_text(aes(label = n), vjust = -0.5, size = 4) +
+  coord_cartesian(ylim = c(0, 30)) +
+  labs(
+    title = "BestGuessMSE Counts",
+    x = "Function",
+    y = "# of TFs"
+  ) +
+  scale_x_discrete(drop = FALSE, limits = c("mean", "max", "sum", "prod", "geom")) +
+  theme_minimal() +
+  theme(legend.position = "none",
+    plot.title = element_text(hjust = 0.5, size = 17),       
+    axis.title.x = element_text(size = 14),                  
+    axis.title.y = element_text(size = 14),                  
+    axis.text.x = element_text(size = 12),                   
+    axis.text.y = element_text(size = 12)) 
+  +
+  ggplot(tf_summary %>% count(dominantFunc), aes(x = dominantFunc, y = n, 
+                                                 fill = dominantFunc)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_text(aes(label = n), vjust = -0.5, size = 4) +
+  coord_cartesian(ylim = c(0, 30)) +
+  labs(
+    title = "DominantFunc Counts", 
+    x = "Function", 
+    y = "# of TFs") +
+  scale_x_discrete(drop = FALSE, limits = c("mean", "max", "sum", "prod", "geom")) +
+  theme_minimal() +
+  theme(legend.position = "none",
+    plot.title = element_text(hjust = 0.5, size = 17),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12))
+)
+```
+
+
+Compare bestGuessMSE and dominantFunc to assess their concordance. The confusion matrix shows how often the function that minimizes the global MSE (bestGuessMSE) matches the function that is most frequently optimal across individual conditions (dominantFunc). A **low agreement rate (36.7%)** indicates that the two approaches frequently diverge in identifying the optimal function.
+
+```{r}
+# confusion table
+funcs <- c("mean", "max", "sum", "prod", "geom")
+
+confusion_table <- table(factor(tf_summary$bestGuessMSE, levels = funcs),
+  factor(tf_summary$dominantFunc, levels = funcs))
+dimnames(confusion_table) <- list(
+  "bestGuessMSE" = rownames(confusion_table),
+  "dominantFunc" = colnames(confusion_table)
+)
+print(confusion_table)
+
+# concordance
+matching <- tf_summary$bestGuessMSE == tf_summary$dominantFunc
+agreement_rate <- mean(matching) * 100  
+
+cat(sprintf("\nAgreement between bestGuessMSE and dominantFunc: %.2f%% (%d out of %d TFs)\n",
+            agreement_rate, sum(matching), length(matching)))
+```
+
+
+To explore whether transcription factors tend to group based on the behavior of the five aggregation functions, a **Principal Component Analysis (PCA)** was performed on the log2 ratio means. This dimensionality reduction helps visualize patterns in a three-dimensional space and evaluate whether certain groups of TFs share similar profiles across functions. In particular, it can reveal whether the performance of the different functions varies across subsets of TFs. By coloring the PCA plot according to either the bestGuessMSE function (based on MSE) or the dominantFunc (based on frequency), it may become possible to assess which classification strategy better reflects underlying structure in the data. This analysis also helps determine whether some functions naturally group together.
+
+```{r}
+# Select the columns of the five functions with the log2 ratio (mean across conditions) values for each transcription factors
+pca_input <- tf_summary %>%
+  select(l2rm_mean, l2rm_max, l2rm_sum, l2rm_prod, l2rm_geom)
+
+# Perform PCA with centering and scaling
+pca_result <- prcomp(pca_input, center = TRUE, scale. = TRUE)
+
+# Create a dataset for the three-dimensional plot
+pca_data <- as.data.frame(pca_result$x) %>%
+  mutate(
+    tfName = tf_summary$tfName,
+    dominantFunc = tf_summary$dominantFunc,
+    bestGuessMSE = tf_summary$bestGuessMSE
+  )
+```
+
+
+Create a 3D scatter plot of the PCA results using the first three principal components, with transcription factors colored by their **dominantFunc** (based on frequency across conditions).
+
+```{r}
+plot_ly(
+  data = pca_data,
+  x = ~PC1, y = ~PC2, z = ~PC3,
+  color = ~dominantFunc,  
+  colors = "Set1",
+  type = "scatter3d",
+  mode = "markers",
+  marker = list(size = 4)
+) %>%
+  layout(
+    title = "3D PCA of log2 Ratio Means by DominantFunc",
+    scene = list(
+      xaxis = list(title = "PC1"),
+      yaxis = list(title = "PC2"),
+      zaxis = list(title = "PC3")
+    )
+  )
+```
+
+
+Create a 3D scatter plot of the PCA results using the first three principal components, with transcription factors colored by their **bestGuessMSE** function (based on the lowest MSE among computed functions).
+
+```{r}
+plot_ly(
+  data = pca_data,
+  x = ~PC1, y = ~PC2, z = ~PC3,
+  color = ~bestGuessMSE,  
+  colors = "Set1",
+  type = "scatter3d",
+  mode = "markers",
+  marker = list(size = 4)
+) %>%
+  layout(
+    title = "3D PCA of log2 Ratio Means by bestGuessMSE",
+    scene = list(
+      xaxis = list(title = "PC1"),
+      yaxis = list(title = "PC2"),
+      zaxis = list(title = "PC3")
+    )
+  )
+```
+
+
+From the two three-dimensional plots above, the PCA does not reveal a clear clustering of transcription factors based on their log2 ratio means across the five functions. Each TF tends to occupy a distinct region in the 3D space, suggesting that no shared global pattern separates TFs by function. In addition, coloring the TFs in the PCA plots by the two classification methods (dominantFunc and BestGuessMSE) does not reveal any visible trend or regional separation. Even without distinct clusters, one might expect that TFs associated with the same function can occupy similar areas in the reduced space. However, this is not the case. For this reason, the choice of the best function should be based on local performance. The dominant function captures condition-specific success, while the MSE-based approach summarizes performance across all conditions, providing a more stable and condition-independent estimate of TFs fitness. By reducing the impact of biological variability, the MSE method offers a more reliable metric when the experimental context is unknown. Since the focus here is not to find the perfect function per condition, but rather one that performs reasonably well across the conditions, the MSE approach to select the best function may be preferred. This ensures better generalization in unknown contexts.
+
+
+Clean the global environment.
+
+```{r}
+rm(pca_input, pca_result, pca_data)
+```
+
+
+# Relationship between the Transcription Factors connectivity and the Function assigned
+
+Summary statistics for the number of targets per transcription factor.
+
+```{r}
+summary(tf_summary$nTargets)
+```
+
+
+Create a boxplot showing the distribution of the number of targets across transcription factors. One clear outlier is kept in the plot, as it likely represents a biologically relevant case of a TF regulating many genes.
+
+```{r}
+ggplot(tf_summary, aes(x = factor(1), y = nTargets)) +
+  geom_boxplot(fill = "salmon", color = "black", width = 0.5, outlier.shape = 16, outlier.size = 2) +
+  theme_minimal() +
+  labs(title = "Number of Targets - Distribution across TFs",
+       y = "# of Targets",
+       x = "") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 17),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.y = element_text(size = 14),
+    axis.text.y = element_text(size = 12)
+  )
+
+```
+
+
+Create a boxplot showing the distribution of the number of regulated targets across transcription factors, grouped by their **bestGuessMSE** function. This helps evaluate whether some functions tend to work better for TFs regulating more or fewer targets. The boxplots show no clear differences across functions (sum and prod are excluded from this qualitative evaluation since the low number of occurrences). The number of regulated targets is similarly distributed regardless of the bestGuessMSE function, suggesting it doesn’t strongly influence which function performs best. A formal statistical test is not performed due to unmet assumptions, including unbalanced group sizes and low counts for some categories. Additionally, transforming the continuous variable into binary categories ("few" vs "many" targets, for example) would require setting an arbitrary threshold, introducing bias and reducing biological interpretability. For these distributional and biological considerations, the analysis remains descriptive.
+
+```{r}
+ggplot(tf_summary, aes(x = bestGuessMSE, y = nTargets, fill = bestGuessMSE)) +
+  geom_boxplot(width = 0.5, outlier.shape = 16, outlier.size = 2) +
+  labs(
+    title = "Target Gene Distribution by Best Function (MSE)",
+    x = "Function",
+    y = "# of Targets"
+  ) +
+  scale_x_discrete(drop = FALSE, limits = c("mean", "max", "sum", "prod", "geom")) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0, 15)) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, size = 17),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12))
+
+```
+
+
+Summary statistics for the number of operons per transcription factor.
+
+```{r}
+summary(tf_summary$nOperons)
+```
+
+
+Create a boxplot showing the distribution of the number of operons across transcription factors.
+
+```{r}
+ggplot(tf_summary, aes(x = factor(1), y = nOperons)) +
+  geom_boxplot(fill = "salmon", color = "black", width = 0.5, outlier.shape = 16, outlier.size = 2) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0, 10)) +
+  labs(title = "Number of Operons - Distribution across TFs",
+       y = "# of Operons",
+       x = "") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 17),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.y = element_text(size = 14),
+    axis.text.y = element_text(size = 12)
+  )
+
+```
+
+
+Create a boxplot showing the distribution of the number of regulated operons across transcription factors, grouped by their bestGuessMSE function. This helps evaluate whether some functions tend to work better for TFs regulating more or fewer operons. The boxplots show no clear differences across functions (sum and prod are excluded from this evaluation since the low number of occurrences). As with the number of target genes, the best-performing function (MSE) does not appear to depend on how many operons a TF regulates. A formal statistical test was not conducted for the same reasons outlined in the analysis of nTargets.
+
+```{r}
+ggplot(tf_summary, aes(x = bestGuessMSE, y = nOperons, fill = bestGuessMSE)) +
+  geom_boxplot(width = 0.5, outlier.shape = 16, outlier.size = 2) +
+  labs(
+    title = "Regulated Operons Distribution by Best Function (MSE)",
+    x = "Function",
+    y = "# of Regulated Operons"
+  ) +
+  scale_x_discrete(drop = FALSE, limits = c("mean", "max", "sum", "prod", "geom")) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0, 10)) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, size = 17),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+```
+
+# Discussion
+
+The relationship between a transcription factor (TF) and its target genes is often more complex than what can be captured by the extreme functional assumptions explored in this project (mean, max, sum, product, geometric mean). Some targets may act independently, operating in separate pathways or responding to distinct environmental stimuli (additive or non-interacting contribution to fitness). Others may act as part of the same process or complex, introducing epistatic interactions. Because of this, real fitness effects are likely to fall between these extremes (combinations or nuanced versions), depending on how functionally related the targets are.
+
+In this context, each function reflects a different biological assumption/scenario:
+
+- The **mean** assumes redundancy across targets. In such cases, losing one gene has the same impact as losing any other, and averaging their contributions approximates the expected behavior.
+- The **maximum** captures dominance by a single key target.
+- The **sum** assumes independent, additive contributions. This makes it suitable when targets are involved in distinct biological processes with no epistatic interaction.
+- The **product** models strong epistasis but overestimates effects when many targets are unrelated.
+- The **geometric mean** corrects the product's problem but does not capture the number of interactions.
+
+The goal of this project was to evaluate which function best approximates the TFs behavior and whether different TFs follow different logic. PCA confirmed that no function works universally well, since clusters are not formed based on the function signature of each transcription factor. Besides, no grouping emerges when coloring by dominantFunc or BestGuessMSE variables. Some TFs may perform better under certain functions precisely because of the architecture of their target network. The function that fits best may offer indirect insights into that structure.
+
+
+# Conclusions
+
+In the end, choosing the best function via MSE proved most practical. While the dominant function reflects which function wins more often across conditions, MSE provides a more stable, condition-independent estimate, reducing biological variability. Since we do not know in advance the conditions in which the function will be applied, MSE offers a more generalizable and reliable choice, even if it may not be the most precise. Future work could explore more flexible approaches, such as regression models and other machine learning approaches, to better capture complex relationships between TFs and their targets.
+
